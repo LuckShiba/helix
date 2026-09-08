@@ -79,6 +79,7 @@ use std::{
     future::Future,
     io::Read,
     num::NonZeroUsize,
+    process::Command,
 };
 
 use std::{
@@ -413,6 +414,7 @@ impl MappableCommand {
         syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
         changed_file_picker, "Open changed file picker",
+        staged_file_picker, "Open staged file picker",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -3480,6 +3482,14 @@ fn jumplist_picker(cx: &mut Context) {
 }
 
 fn changed_file_picker(cx: &mut Context) {
+    file_change_picker(cx, false);
+}
+
+fn staged_file_picker(cx: &mut Context) {
+    file_change_picker(cx, true);
+}
+
+fn file_change_picker(cx: &mut Context, staged: bool) {
     pub struct FileChangeData {
         cwd: PathBuf,
         style_untracked: Style,
@@ -3560,24 +3570,82 @@ fn changed_file_picker(cx: &mut Context) {
     .with_preview(|_editor, meta| Some((meta.path().into(), None)));
     let injector = picker.injector();
 
-    let trust_full = cx
-        .editor
-        .workspace_trust
-        .query(
-            &helix_loader::find_workspace_in(&cwd).0,
-            helix_loader::workspace_trust::TrustQuery::Git,
-        )
-        .is_trusted();
-    cx.editor
-        .diff_providers
-        .clone()
-        .for_each_changed_file(cwd, trust_full, move |change| match change {
-            Ok(change) => injector.push(change).is_ok(),
-            Err(err) => {
-                status::report_blocking(err);
-                true
+    if staged {
+        tokio::task::spawn_blocking(move || {
+            let output = Command::new("git")
+                .current_dir(&cwd)
+                .args([
+                    "diff",
+                    "--cached",
+                    "--name-status",
+                    "-z",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                ])
+                .env_remove("GIT_EXTERNAL_DIFF")
+                .output();
+            let output = match output {
+                Ok(output) if output.status.success() => output,
+                Ok(output) => {
+                    status::report_blocking(anyhow!(
+                        "git diff --cached failed: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ));
+                    return;
+                }
+                Err(err) => {
+                    status::report_blocking(anyhow!("Error getting diff: {err}"));
+                    return;
+                }
+            };
+
+            let mut fields = output.stdout.split(|byte| *byte == 0);
+            while let Some(status) = fields.next().filter(|status| !status.is_empty()) {
+                let path = |field: &[u8]| cwd.join(String::from_utf8_lossy(field).as_ref());
+                let change = match status[0] {
+                    b'A' => FileChange::Untracked {
+                        path: path(fields.next().unwrap_or_default()),
+                    },
+                    b'M' | b'T' => FileChange::Modified {
+                        path: path(fields.next().unwrap_or_default()),
+                    },
+                    b'D' => FileChange::Deleted {
+                        path: path(fields.next().unwrap_or_default()),
+                    },
+                    b'R' | b'C' => FileChange::Renamed {
+                        from_path: path(fields.next().unwrap_or_default()),
+                        to_path: path(fields.next().unwrap_or_default()),
+                    },
+                    b'U' => FileChange::Conflict {
+                        path: path(fields.next().unwrap_or_default()),
+                    },
+                    _ => continue,
+                };
+                if injector.push(change).is_err() {
+                    break;
+                }
             }
         });
+    } else {
+        let trust_full = cx
+            .editor
+            .workspace_trust
+            .query(
+                &helix_loader::find_workspace_in(&cwd).0,
+                helix_loader::workspace_trust::TrustQuery::Git,
+            )
+            .is_trusted();
+        cx.editor
+            .diff_providers
+            .clone()
+            .for_each_changed_file(cwd, trust_full, move |change| match change {
+                Ok(change) => injector.push(change).is_ok(),
+                Err(err) => {
+                    status::report_blocking(err);
+                    true
+                }
+            });
+    }
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
