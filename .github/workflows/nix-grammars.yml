@@ -1,6 +1,7 @@
 name: |
   Update Nix grammar lock file
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -24,10 +25,13 @@ jobs:
           toolchain: stable
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+    
+      - name: Install nix
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
 
       - name: Update Nix tree-sitter grammars
         run: |
-          nix-shell -p --command "cargo xtask update-nix-grammar-sources"
+          nix-shell --command "cargo xtask update-nix-grammar-sources"
 
       - name: Update Nix tree-sitter grammars
         uses: stefanzweifel/git-auto-commit-action@v7
