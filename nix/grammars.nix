@@ -31,7 +31,7 @@ let
       version = "${srcVersion}+${lib.sources.shortRev grammar.nurl.args.rev}";
       location = grammar.subpath or null;
     };
-  grammarsToBuild = builtins.filterAttrs (
+  grammarsToBuild = lib.filterAttrs (
     name: grammar: includeGrammarIf (grammar // { inherit name; })
   ) nixGrammarLock;
   builtGrammars = lib.mapAttrs' (name: grammar: {
