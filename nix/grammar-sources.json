@@ -2080,10 +2080,10 @@
   "perl": {
     "nurl": {
       "args": {
-        "hash": "sha256-/WA3E5kDxHl3YJ5yd020iIVc1YEssAcvlD5/Voceu2Y=",
+        "hash": "sha256-APt/3LOHO6LgzQGugS3fY6d55hyVb6nbOhIEu5Atn4c=",
         "owner": "tree-sitter-perl",
         "repo": "tree-sitter-perl",
-        "rev": "72a08a496a23212f23802490ef6f4700d68cfd0e"
+        "rev": "aa5600c8df1eb9ed111db72e20c741dd73ec336a"
       },
       "fetcher": "fetchFromGitHub"
     }
